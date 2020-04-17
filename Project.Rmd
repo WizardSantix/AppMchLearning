@@ -1,0 +1,78 @@
+---
+title: "Practical Machine Learning Prediciton project"
+author: "Santiago Correa"
+date: "15 de abril de 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document presents the process that was followed for prediction on the Human Activity Recognition dataset.
+
+First, the necessary packages are loaded. These are mainly caret and randomForest, also, foreach and do parallel were used for parallelizing operations and reduce load times.
+
+```{r, include="false", results="hide"}
+options(warn=-1)
+require(caret)
+require(randomForest)
+require(parallel)
+require(doParallel)
+set.seed(2128)
+```
+
+The data for the train and test set is loaded using the read.csv command.
+
+```{r results="hide"}
+#Some of the columns were imported as factors because there are some DIV/0! characters, which are to be ignored and then the columns are to be loaded as numeric.
+training <- read.csv("./pml-training.csv", na.strings=c("#DIV/0!") )
+training[,8:ncol(training)-1]<-sapply(training[,8:ncol(training)-1], function(x) as.numeric(as.character(x)))
+finaltesting <- read.csv("./pml-testing.csv")
+```
+
+A quick look at the data will show that some columns have a lot of missing data in both the training and testing sets, in fact as opposed to this, the ones with high completion rate have no missing values.
+ 
+```{r results="hide"}
+summary(training)
+str(training)
+na_count_train <-sapply(training, function(y) sum(length(which(is.na(y)))))
+na_count_test <-sapply(finaltesting, function(y) sum(length(which(is.na(y)))))
+na_traintest<- rbind(na_count_train,na_count_test)
+```
+
+It would make no sense to include variables with low completion rate, because they would only serve to increase variability without adding prediction power, so the dataset was filtered to only include the variables with a 100% completion rate in both the training and test sets. We will also filter some features which seem to be useless like "X"", timestamps, "new_window" and "num_window".Also, user_name  was filtered because we want the model to work for any given person.
+
+```{r results="hide"}
+trainingnames <- colnames(training[colSums(is.na(training)) == 0])[-(1:7)]
+ftesting <- finaltesting[trainingnames[1:length(trainingnames)-1]]
+ftraining <- training[trainingnames]
+```
+
+We have now a dataset with complete features. So the first step is to split the dataset in two part : the first for training and the second for testing.
+
+```{r results="hide"}
+workdata <- createDataPartition(y=ftraining$classe, p=3/4, list=FALSE )
+traindata <- ftraining[workdata,]
+testdata <- ftraining[-workdata,]
+```
+
+We can now train a classifier with the training data. Random forest with 500 trees will be used as predictor.
+```{r}
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+model<- train(x=traindata[-ncol(traindata)],y=traindata$classe,method="rf",preProcess = "pca", trControl= fitControl)
+```
+
+To evaluate the model we will use the confusionmatrix method and we will focus on accuracy, sensitivity & specificity metrics :
+```{r}
+predictions <- predict(model, newdata=testdata)
+confusionMatrix(predictions,testdata$classe)
+```
+
+As seen by the result of the confusionmatrix, the model is good and efficient because it has an accuracy of 0.997 and very good sensitivity & specificity values on the testing dataset. (the lowest value is 0.995 for the sensitivity of the class C), also, the kappe metric of 0.99 shows an almost perfect agreement between predictions and the test data, and this doesn't suggest overfitting because it shows agreement with the test set, not the training one. The model seems to predict well enough, so it doesn't seem necessary to try other methods.
+
+Finally, the predictions for the final testing set...
+
+```{r}
+predict(model, newdata=ftesting)
+```
